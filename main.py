@@ -24,7 +24,6 @@ m_good_bye = "👋 Suhbat yakunlandi."
 m_disconnect_user = "🛑 Suhbat yakunlandi."
 m_dislike_user = "👎 Siz suhbatni rad etdiniz."
 m_dislike_user_to = "👎 Sizning suhbatdoshingiz sizni rad etdi."
-m_all_like = lambda username: f"💖 Siz bir-biringizni yoqtirdingiz! @{username}"
 m_failed = "⚠️ Suhbat topilmadi."
 m_send_some_messages = "⚠️ Xabar yuborolmadingiz."
 
@@ -47,14 +46,14 @@ def generate_markup():
     return markup
 
 # Yangi foydalanuvchini qo'shish
-def add_user(user_id):
+def add_user(user_id, username):
     if user_id not in free_users:
-        free_users[user_id] = {"ID": user_id, "state": 1, "like": False, "UserName": ""}
+        free_users[user_id] = {"ID": user_id, "state": 1, "like": False, "UserName": username}
 
 # Suhbatni bog‘lash
 def add_communications(user1, user2):
-    communications[user1] = {"UserTo": user2, "like": False, "UserName": ""}
-    communications[user2] = {"UserTo": user1, "like": False, "UserName": ""}
+    communications[user1] = {"UserTo": user2, "like": False, "UserName": free_users[user1]["UserName"]}
+    communications[user2] = {"UserTo": user1, "like": False, "UserName": free_users[user2]["UserName"]}
 
 def delete_communications(user_id):
     if user_id in communications:
@@ -70,7 +69,7 @@ def start_handler(message):
     if not message.chat.username:
         bot.send_message(user_id, m_is_not_user_name)
         return
-    add_user(user_id)
+    add_user(user_id, message.chat.username)
     bot.send_message(user_id, m_start, reply_markup=inline_menu())
 
 # Bot komandasi: /stop
@@ -84,20 +83,20 @@ def stop_handler(message):
 @bot.callback_query_handler(func=lambda call: True)
 def callback_handler(call):
     user_id = call.message.chat.id
-    if call.data == "NewChat":
-        add_user(user_id)
-        # Topilgan birinchi boshqa foydalanuvchini bog‘lash
-        partner_id = None
-        for uid, info in free_users.items():
-            if uid != user_id and info["state"] == 1:
-                partner_id = uid
-                break
-        if partner_id:
-            add_communications(user_id, partner_id)
-            bot.send_message(user_id, m_is_connect, reply_markup=generate_markup())
-            bot.send_message(partner_id, m_is_connect, reply_markup=generate_markup())
-        else:
-            bot.send_message(user_id, m_is_not_free_users)
+    add_user(user_id, call.message.chat.username)
+
+    # Topilgan birinchi boshqa foydalanuvchini bog‘lash
+    partner_id = None
+    for uid, info in free_users.items():
+        if uid != user_id and info["state"] == 1 and uid not in communications:
+            partner_id = uid
+            break
+    if partner_id:
+        add_communications(user_id, partner_id)
+        bot.send_message(user_id, m_is_connect, reply_markup=generate_markup())
+        bot.send_message(partner_id, m_is_connect, reply_markup=generate_markup())
+    else:
+        bot.send_message(user_id, m_is_not_free_users)
 
 # Like/Dislike tugmalari
 @bot.message_handler(func=lambda message: message.text in [like_str, dislike_str])
@@ -106,12 +105,16 @@ def like_dislike_handler(message):
     if user_id not in communications:
         bot.send_message(user_id, m_failed, reply_markup=types.ReplyKeyboardRemove())
         return
+
     partner_id = communications[user_id]["UserTo"]
+    user_username = communications[user_id]["UserName"]
+    partner_username = communications[partner_id]["UserName"]
+
     if message.text == like_str:
         communications[user_id]["like"] = True
         if communications[partner_id]["like"]:
-            bot.send_message(user_id, m_all_like(message.chat.username))
-            bot.send_message(partner_id, m_all_like(message.chat.username))
+            bot.send_message(user_id, f"💖 Siz bir-biringizni yoqtirdingiz! @{partner_username}", reply_markup=types.ReplyKeyboardRemove())
+            bot.send_message(partner_id, f"💖 Siz bir-biringizni yoqtirdingiz! @{user_username}", reply_markup=types.ReplyKeyboardRemove())
             delete_communications(user_id)
     else:
         bot.send_message(user_id, m_dislike_user, reply_markup=types.ReplyKeyboardRemove())
