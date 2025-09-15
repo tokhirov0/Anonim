@@ -2,8 +2,8 @@ import os
 import telebot
 from telebot import types
 from dotenv import load_dotenv
+from flask import Flask, request
 
-# ====== Load .env ======
 load_dotenv()
 
 TOKEN = os.getenv("TOKEN")
@@ -14,10 +14,11 @@ PORT = int(os.getenv("PORT", 10000))
 RENDER_HOSTNAME = os.getenv("RENDER_EXTERNAL_HOSTNAME")
 
 bot = telebot.TeleBot(TOKEN)
+app = Flask(__name__)
 
 # ====== Data ======
-free_users = {}  # foydalanuvchilar holati
-communications = {}  # active suhbatlar
+free_users = {}
+communications = {}
 
 # ====== Messages ======
 m_start = "👋 Salom! Anonim chatga xush kelibsiz.\n\nInline tugmalar orqali boshlang."
@@ -31,7 +32,6 @@ m_all_like = lambda username: f"🎉 Foydalanuvchi @{username} bilan match bo‘
 m_play_again = "🎮 Yana suhbat boshlash uchun tugmani bosing."
 m_good_bye = "👋 Xayr!"
 m_failed = "⚠️ Siz hali suhbatga ulangan emassiz."
-m_send_some_messages = "⚠️ Shu xabarni yuborolmaysiz."
 
 like_str = "❤️ Like"
 dislike_str = "❌ Dislike"
@@ -99,10 +99,8 @@ def like_dislike(message):
     if user_id not in communications:
         bot.send_message(user_id, m_failed, reply_markup=types.ReplyKeyboardRemove())
         return
-
     partner_id = communications[user_id]["UserTo"]
     flag = False
-
     if message.text == dislike_str:
         bot.send_message(user_id, m_dislike_user, reply_markup=types.ReplyKeyboardRemove())
         bot.send_message(partner_id, m_dislike_user_to, reply_markup=types.ReplyKeyboardRemove())
@@ -114,13 +112,12 @@ def like_dislike(message):
             bot.send_message(user_id, m_all_like(communications[partner_id]["UserName"]))
             bot.send_message(partner_id, m_all_like(communications[user_id]["UserName"]))
             flag = True
-
     if flag:
         delete_info(user_id)
         bot.send_message(user_id, m_play_again, reply_markup=inline_menu())
         bot.send_message(partner_id, m_play_again, reply_markup=inline_menu())
 
-@bot.message_handler(content_types=["text", "sticker", "video", "photo", "audio", "voice"])
+@bot.message_handler(content_types=["text","sticker","video","photo","audio","voice"])
 def relay(message):
     user_id = message.chat.id
     if not connect_user(user_id):
@@ -137,7 +134,7 @@ def relay(message):
     elif message.content_type == "voice":
         bot.send_voice(partner_id, message.voice.file_id)
     elif message.content_type == "text":
-        if message.text not in ["/start", "/stop", like_str, dislike_str]:
+        if message.text not in ["/start","/stop",like_str,dislike_str]:
             bot.send_message(partner_id, message.text)
 
 @bot.callback_query_handler(func=lambda c: True)
@@ -145,7 +142,6 @@ def new_chat(call):
     if call.data == "NewChat":
         user_id = call.message.chat.id
         add_users(call.message.chat)
-        # Top free user
         user_to_id = None
         for uid, info in free_users.items():
             if uid != user_id and info["state"] == 1:
@@ -158,8 +154,20 @@ def new_chat(call):
         bot.send_message(user_id, m_is_connect, reply_markup=generate_markup())
         bot.send_message(user_to_id, m_is_connect, reply_markup=generate_markup())
 
-# ====== Start bot ======
+# ====== Flask webhook ======
+@app.route(f"/{TOKEN}", methods=["POST"])
+def webhook():
+    json_str = request.get_data().decode("utf-8")
+    update = telebot.types.Update.de_json(json_str)
+    bot.process_new_updates([update])
+    return "OK", 200
+
+@app.route("/")
+def index():
+    return "Bot ishlayapti ✅"
+
+# ====== Start ======
 if __name__ == "__main__":
     bot.remove_webhook()
     bot.set_webhook(url=f"https://{RENDER_HOSTNAME}/{TOKEN}")
-    bot.infinity_polling()
+    app.run(host="0.0.0.0", port=PORT)
